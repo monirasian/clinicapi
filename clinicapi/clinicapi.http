@@ -1,0 +1,23 @@
+@baseUrl = http://localhost:5164
+
+GET {{baseUrl}}/weatherforecast/
+Accept: application/json
+
+###
+### Login (use a real username/email + password from the `users` table)
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+	"userNameOrEmail": "admin",
+	"password": "your_password_here"
+}
+
+### Call a protected endpoint (paste token from login response)
+@token = REPLACE_WITH_TOKEN
+GET {{baseUrl}}/api/patients?take=5
+Authorization: Bearer {{token}}
+
+### Logout (client should discard token; this endpoint just confirms)
+POST {{baseUrl}}/api/auth/logout
+Authorization: Bearer {{token}}

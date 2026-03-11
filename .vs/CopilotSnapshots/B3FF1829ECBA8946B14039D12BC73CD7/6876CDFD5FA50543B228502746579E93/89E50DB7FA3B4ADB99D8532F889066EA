@@ -1,0 +1,45 @@
+﻿using Microsoft.AspNetCore.HttpOverrides;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedProto
+        | ForwardedHeaders.XForwardedHost;
+
+    // Accept forwarded headers from any proxy. If you know your proxy IP(s), lock this down.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Add services to the container.
+
+builder.Services.AddControllers();
+// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+builder.Services.AddOpenApi();
+
+var app = builder.Build();
+
+// Must run before HTTPS redirection and endpoint handling when behind a reverse proxy.
+app.UseForwardedHeaders();
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+
+    app.UseSwaggerUI(options =>
+    {
+        // Relative path so it works with PathBase (e.g., behind XAMPP/reverse proxy).
+        options.SwaggerEndpoint("../openapi/v1.json", "clinicapi v1");
+    });
+}
+
+app.UseHttpsRedirection();
+
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();

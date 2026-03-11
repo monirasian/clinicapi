@@ -1,0 +1,125 @@
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
+using System.Text.Json.Serialization;
+using clinicapi.Data;
+using Microsoft.EntityFrameworkCore;
+using System.Text;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedProto
+        | ForwardedHeaders.XForwardedHost;
+
+    // Accept forwarded headers from any proxy. If you know your proxy IP(s), lock this down.
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Add services to the container.
+
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    });
+
+builder.Services.AddDbContext<ClinicDbContext>(options =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("ClinicDb");
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        throw new InvalidOperationException("Missing ConnectionStrings:ClinicDb. Configure it in appsettings.Development.json (or user secrets). ");
+    }
+
+    options.UseMySql(connectionString, ServerVersion.Parse("10.4.32-mariadb"));
+});
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        var issuer = builder.Configuration["Jwt:Issuer"];
+        var audience = builder.Configuration["Jwt:Audience"];
+        var key = builder.Configuration["Jwt:Key"];
+
+        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(audience))
+        {
+            throw new InvalidOperationException("JWT Issuer/Audience are missing. Configure Jwt:Issuer and Jwt:Audience in appsettings.Development.json or environment variables.");
+        }
+
+        if (string.IsNullOrWhiteSpace(key) || key.Length < 32)
+        {
+            throw new InvalidOperationException("JWT signing key is missing/too short. Configure Jwt:Key (>= 32 chars) in appsettings.Development.json or environment variables.");
+        }
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = issuer,
+            ValidateAudience = true,
+            ValidAudience = audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AngularFrontend", policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:4200",
+                "https://localhost:4200",
+                "http://127.0.0.1:4200",
+                "https://127.0.0.1:4200")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
+// Add Swagger services
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "JWT Authorization header using the Bearer scheme. Example: 'Bearer {token}'"
+    });
+});
+
+var app = builder.Build();
+
+// Must run before HTTPS redirection and endpoint handling when behind a reverse proxy.
+app.UseForwardedHeaders();
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+
+app.UseCors("AngularFrontend");
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.Run();
