@@ -1,1 +1,1 @@
-# clinicapi
+# clinicapi setup
